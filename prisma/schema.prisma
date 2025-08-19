@@ -1,0 +1,188 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UnitStatus {
+  available
+  held
+  occupied
+  maintenance
+}
+
+enum LeaseStatus {
+  draft
+  active
+  delinquent
+  closed
+}
+
+enum PaymentStatus {
+  pending
+  succeeded
+  failed
+  refunded
+}
+
+enum PaymentProvider {
+  stripe
+  mercadopago
+  manual
+}
+
+model Tenant {
+  id           String        @id @default(uuid())
+  slug         String        @unique
+  name         String
+  customDomain String?       @unique
+  themeJson    Json?
+  users        UserTenant[]
+  facilities   Facility[]
+  unitTypes    UnitType[]
+  units        Unit[]
+  customers    Customer[]
+  leases       Lease[]
+  payments     Payment[]
+  reservations Reservation[]
+  createdAt    DateTime      @default(now())
+}
+
+model User {
+  id        String       @id @default(uuid())
+  email     String       @unique
+  name      String?
+  tenants   UserTenant[]
+  customers Customer[] // optional: if a user also logs in as customer
+  createdAt DateTime     @default(now())
+}
+
+model UserTenant {
+  // membership + role within a tenant (owner|staff|customer)
+  userId   String
+  tenantId String
+  role     String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@id([userId, tenantId])
+  @@index([tenantId])
+}
+
+model Facility {
+  id        String   @id @default(uuid())
+  tenantId  String
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  slug      String
+  address   String?
+  units     Unit[]
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, slug])
+}
+
+model UnitType {
+  id        String  @id @default(uuid())
+  tenantId  String
+  tenant    Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name      String
+  size      String // e.g., "10x10"
+  climate   Boolean @default(false)
+  basePrice Int
+  units     Unit[]
+
+  @@index([tenantId])
+}
+
+model Unit {
+  id           String        @id @default(uuid())
+  tenantId     String
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  facilityId   String
+  facility     Facility      @relation(fields: [facilityId], references: [id], onDelete: Cascade)
+  unitTypeId   String
+  unitType     UnitType      @relation(fields: [unitTypeId], references: [id], onDelete: Restrict)
+  code         String
+  status       UnitStatus    @default(available)
+  floor        Int?
+  coordsJson   Json? // for map shapes/labels
+  leases       Lease[]
+  reservations Reservation[]
+
+  @@unique([tenantId, facilityId, code]) // same code can repeat across tenants, never within facility
+  @@index([tenantId, facilityId, status])
+}
+
+model Customer {
+  id          String        @id @default(uuid())
+  tenantId    String
+  tenant      Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId      String? // optional link to auth user
+  user        User?         @relation(fields: [userId], references: [id])
+  name        String
+  email       String
+  phone       String?
+  leases      Lease[]
+  payments    Payment[]
+  createdAt   DateTime      @default(now())
+  Reservation Reservation[]
+
+  @@unique([tenantId, email])
+}
+
+model Lease {
+  id          String      @id @default(uuid())
+  tenantId    String
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unitId      String
+  unit        Unit        @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  customerId  String
+  customer    Customer    @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  startDate   DateTime
+  endDate     DateTime?
+  monthlyRent Int // captured at creation
+  status      LeaseStatus @default(active)
+  payments    Payment[]
+  createdAt   DateTime    @default(now())
+
+  @@index([tenantId, status])
+}
+
+model Payment {
+  id         String          @id @default(uuid())
+  tenantId   String
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  leaseId    String
+  lease      Lease           @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+  provider   PaymentProvider
+  externalId String? // provider’s id (e.g., pi_xxx)
+  amount     Int
+  currency   String          @default("MXN")
+  status     PaymentStatus   @default(pending)
+  createdAt  DateTime        @default(now())
+  Customer   Customer?       @relation(fields: [customerId], references: [id])
+  customerId String?
+
+  @@unique([tenantId, provider, externalId]) // idempotency (null externalId allowed once per tenant)
+  @@index([tenantId, createdAt])
+}
+
+model Reservation {
+  id         String    @id @default(uuid())
+  tenantId   String
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unitId     String
+  unit       Unit      @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   Customer? @relation(fields: [customerId], references: [id])
+  expiresAt  DateTime
+  status     String    @default("pending") // pending|converted|expired|cancelled
+  paymentId  String?
+  createdAt  DateTime  @default(now())
+
+  @@index([tenantId, unitId])
+}
