@@ -6,6 +6,8 @@ components/LayoutBuilder.tsx
 "use client";
 import { useState, useRef } from "react";
 import { Stage, Layer, Rect, Text, Line } from "react-konva";
+import type Konva from "konva";
+import type { KonvaEventObject } from "konva/lib/Node";
 import { nanoid } from "nanoid";
 
 // ------------------------------ constants ------------------------------------
@@ -40,10 +42,13 @@ const snap = (v: number) => Math.round(v / GRID) * GRID;
 
 export default function LayoutBuilder() {
     const [units, setUnits] = useState<UnitInstance[]>([]);
-    const stageRef = useRef<any>(null);
+    const stageRef = useRef<Konva.Stage | null>(null);
 
     // ----- palette drag‑n‑clone -------------------------------------------------
-    const handlePaletteDragEnd = (idx: number, e: any) => {
+    const handlePaletteDragEnd = (
+        idx: number,
+        e: KonvaEventObject<DragEvent>
+    ) => {
         const { x, y } = e.target.position();
         if (x > PALETTE_W) {
             const type = UNIT_TYPES[idx];
@@ -57,7 +62,10 @@ export default function LayoutBuilder() {
     };
 
     // ----- move placed units ----------------------------------------------------
-    const handleUnitDragEnd = (id: string, e: any) => {
+    const handleUnitDragEnd = (
+        id: string,
+        e: KonvaEventObject<DragEvent>
+    ) => {
         const { x, y } = e.target.position();
         setUnits((prev) => prev.map((u) => (u.id === id ? { ...u, x: snap(x), y: snap(y) } : u)));
     };
